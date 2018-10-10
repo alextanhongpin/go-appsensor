@@ -62,14 +62,15 @@ func (a *appSensorImpl) loop() {
 			if !ok {
 				return
 			}
-			if c, found := a.cache[evt.ID]; found {
+			
+			if c, found := a.get(evt.ID); found {
 				c.Count++
 				if a.block(c) {
 					a.unblock(c)
 				}
 			} else {
 				// Create a new event.
-				a.cache[evt.ID] = evt
+				a.set(evt.ID, evt)
 			}
 		}
 	}
@@ -88,17 +89,28 @@ func (a *appSensorImpl) Log(id, evt string) {
 }
 
 func (a *appSensorImpl) Allow(id string) bool {
-	a.RLock()
-	evt, found := a.cache[id]
-	a.RUnlock()
+	evt, found := a.get(id)
 	if found && a.block(evt) {
 		return a.unblock(evt)
 	}
 	return !found
 }
 
+func (a *appSensorImpl) get(id string) (*Event, bool){
+	a.RLock()
+	evt, found := a.cache[id]
+	a.RUnlock()
+	return evt, found
+}
+
+func (a *appSensorImpl) set(id string, evt *Event) {
+	a.Lock()
+	a.cache[id] = evt
+	a.Unlock()
+} 
+
 func (a *appSensorImpl) unblock(evt *Event) bool {
-	if time.Since(evt.UpdatedAt) > a.duration {
+	if evt.Penalized && time.Since(evt.UpdatedAt) > a.duration {
 		evt.Count = 0
 		evt.Penalized = false
 	}
