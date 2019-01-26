@@ -12,14 +12,15 @@ const (
 
 type Rule interface {
 	Validate(store EventStore, evt Event) bool
+	Update(store EventStore, evt Event)
 }
 
 var invalidPasswordRule *InvalidPasswordRule
 var defaultRule *DefaultRule
 
 func init() {
-	invalidPasswordRule = &InvalidPasswordRule{3}
-	defaultRule = &DefaultRule{1}
+	invalidPasswordRule = &InvalidPasswordRule{3, 1 * time.Millisecond}
+	defaultRule = &DefaultRule{1, 500 * time.Millisecond}
 }
 
 func RuleStrategy(evt Event) Rule {
@@ -36,20 +37,45 @@ func RuleStrategy(evt Event) Rule {
 
 type DefaultRule struct {
 	threshold int
+	duration  time.Duration
 }
 
 func (d *DefaultRule) Validate(store EventStore, evt Event) bool {
 	e := store.Get(evt)
-	return e.Count > d.threshold
+	return e.Count >= d.threshold
+}
+
+func update(store EventStore, evt Event, duration time.Duration) {
+	meta := store.Get(evt)
+	if time.Since(meta.UpdatedAt) > (time.Duration(meta.Count) * duration) {
+		meta.Count--
+		fmt.Println("decrement evt", evt, meta.Count)
+		if meta.Count < 0 {
+			store.Delete(evt)
+			fmt.Println("cleared evt", evt)
+			return
+		}
+		meta.UpdatedAt = time.Now().UTC()
+		store.Put(evt, meta)
+	}
+}
+
+func (d *DefaultRule) Update(store EventStore, evt Event) {
+	update(store, evt, d.duration)
 }
 
 type InvalidPasswordRule struct {
 	threshold int
+	duration  time.Duration
 }
 
 func (i *InvalidPasswordRule) Validate(store EventStore, evt Event) bool {
 	e := store.Get(evt)
 	return e.Count > i.threshold
+}
+
+func (i *InvalidPasswordRule) Update(store EventStore, evt Event) {
+	update(store, evt, i.duration)
 }
 
 type Event struct {
@@ -160,23 +186,11 @@ func (e *EventManagerImpl) loop() {
 }
 
 func (e *EventManagerImpl) cleanup() {
-	lockDuration := 1 * time.Second
 	size := e.store.Size()
-	keys := e.store.Keys(max(20/100*size, size))
-	for _, key := range keys {
-		meta := e.store.Get(key)
-		// The lock duration is proportional to the frequency of the event.
-		if time.Since(meta.UpdatedAt) > (time.Duration(meta.Count) * lockDuration) {
-			meta.Count--
-			fmt.Println("decrement key", key, meta.Count)
-			if meta.Count < 0 {
-				e.store.Delete(key)
-				fmt.Println("cleared key", key)
-				continue
-			}
-			meta.UpdatedAt = time.Now().UTC()
-			e.store.Put(key, meta)
-		}
+	events := e.store.Keys(max(20/100*size, size))
+	for _, evt := range events {
+		rule := RuleStrategy(evt)
+		rule.Update(e.store, evt)
 	}
 }
 
@@ -213,17 +227,38 @@ func main() {
 		wg.Done()
 	}()
 	for _, evt := range events {
-		for i := 0; i < 3; i++ {
+		for i := 0; i < 5; i++ {
 			evtMgr.Log(evt)
 		}
 		fmt.Println(evtMgr.Allow(evt))
 	}
 
 	go func() {
-		time.Sleep(5 * time.Second)
+		time.Sleep(4 * time.Second)
 		for _, evt := range events {
-			evtMgr.Log(evt)
+			for i := 0; i < 2; i++ {
+				evtMgr.Log(evt)
+			}
 		}
+	}()
+
+	go func() {
+		// Periodically check if the event can be called.
+		t := time.NewTicker(1 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-t.C:
+				for _, evt := range events {
+					if evtMgr.Allow(evt) {
+						fmt.Println(evt.ID, evt.Type, "is unblocked")
+					} else {
+						fmt.Println(evt.ID, evt.Type, "is blocked")
+					}
+				}
+			}
+		}
+
 	}()
 
 	wg.Wait()
