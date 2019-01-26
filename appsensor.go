@@ -22,7 +22,7 @@ var invalidPasswordRule *InvalidPasswordRule
 var defaultRule *DefaultRule
 
 func init() {
-	invalidPasswordRule = &InvalidPasswordRule{3, 1 * time.Millisecond}
+	invalidPasswordRule = &InvalidPasswordRule{3, 1 * time.Second}
 	defaultRule = &DefaultRule{1, 500 * time.Millisecond}
 }
 
@@ -244,7 +244,7 @@ func main() {
 
 	go func() {
 		for {
-			time.Sleep(4 * time.Second)
+			time.Sleep(10 * time.Second)
 			n := rand.Intn(5)
 			for _, evt := range events {
 				for i := 0; i < n; i++ {
