@@ -9,12 +9,13 @@ import (
 
 const (
 	InvalidPassword = "invalid_password"
+	Default         = "default"
 )
 
-var Events = [...]string{InvalidPassword}
+var Events = [...]string{InvalidPassword, Default}
 
 type Rule interface {
-	Validate(store EventStore, evt Event) bool
+	Allow(store EventStore, evt Event) bool
 	Update(store EventStore, evt Event)
 }
 
@@ -22,8 +23,8 @@ var invalidPasswordRule *InvalidPasswordRule
 var defaultRule *DefaultRule
 
 func init() {
-	invalidPasswordRule = &InvalidPasswordRule{3, 1 * time.Second}
-	defaultRule = &DefaultRule{1, 500 * time.Millisecond}
+	invalidPasswordRule = &InvalidPasswordRule{5, 1 * time.Second}
+	defaultRule = &DefaultRule{1, 1 * time.Second}
 }
 
 func RuleStrategy(evt Event) Rule {
@@ -43,9 +44,9 @@ type DefaultRule struct {
 	duration  time.Duration
 }
 
-func (d *DefaultRule) Validate(store EventStore, evt Event) bool {
+func (d *DefaultRule) Allow(store EventStore, evt Event) bool {
 	e := store.Get(evt)
-	return e.Count >= d.threshold
+	return e.Count < d.threshold
 }
 
 func update(store EventStore, evt Event, duration time.Duration) {
@@ -72,9 +73,9 @@ type InvalidPasswordRule struct {
 	duration  time.Duration
 }
 
-func (i *InvalidPasswordRule) Validate(store EventStore, evt Event) bool {
+func (i *InvalidPasswordRule) Allow(store EventStore, evt Event) bool {
 	e := store.Get(evt)
-	return e.Count > i.threshold
+	return e.Count < i.threshold
 }
 
 func (i *InvalidPasswordRule) Update(store EventStore, evt Event) {
@@ -214,16 +215,18 @@ func (e *EventManagerImpl) Allow(id string) bool {
 	for _, evtType := range Events {
 		evt := Event{id, evtType}
 		rule := RuleStrategy(evt)
-		return !rule.Validate(e.store, evt)
+		if isAllowed := rule.Allow(e.store, evt); !isAllowed {
+			return false
+		}
 	}
 	return true
 }
 
 func main() {
 	events := []Event{
-		Event{"1", "invalid_password"},
-		Event{"2", "invalid_password"},
-		Event{"3", "something else"},
+		Event{"1", InvalidPassword},
+		Event{"2", InvalidPassword},
+		Event{"3", Default},
 	}
 
 	evtMgr := NewEventManager()
@@ -244,7 +247,7 @@ func main() {
 
 	go func() {
 		for {
-			time.Sleep(10 * time.Second)
+			time.Sleep(20 * time.Second)
 			n := rand.Intn(5)
 			for _, evt := range events {
 				for i := 0; i < n; i++ {
@@ -263,9 +266,9 @@ func main() {
 			case <-t.C:
 				for _, evt := range events {
 					if evtMgr.Allow(evt.ID) {
-						fmt.Println(evt.ID, evt.Type, "is unblocked")
+						fmt.Println(evt.ID, evt.Type, "is allowed")
 					} else {
-						fmt.Println(evt.ID, evt.Type, "is blocked")
+						fmt.Println(evt.ID, evt.Type, "is penalized")
 					}
 				}
 			}
