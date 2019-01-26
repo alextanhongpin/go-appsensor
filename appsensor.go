@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"math/rand"
 	"sync"
 	"time"
 )
@@ -9,6 +10,8 @@ import (
 const (
 	InvalidPassword = "invalid_password"
 )
+
+var Events = [...]string{InvalidPassword}
 
 type Rule interface {
 	Validate(store EventStore, evt Event) bool
@@ -153,7 +156,7 @@ func (e *EventStoreImpl) Keys(n int) []Event {
 
 type EventManager interface {
 	Log(Event)
-	Allow(Event) bool
+	Allow(id string) bool
 }
 
 type EventManagerImpl struct {
@@ -202,12 +205,18 @@ func (e *EventManagerImpl) Log(evt Event) {
 	meta.UpdatedAt = time.Now().UTC()
 	e.store.Put(evt, meta)
 	e.mu.Unlock()
-	fmt.Println("increment key", meta.Count)
+	fmt.Println("increment key", evt.ID, meta.Count)
 }
 
-func (e *EventManagerImpl) Allow(evt Event) bool {
-	rule := RuleStrategy(evt)
-	return !rule.Validate(e.store, evt)
+func (e *EventManagerImpl) Allow(id string) bool {
+	// For the given user id/ip, if any of the rule is broken,
+	// block them.
+	for _, evtType := range Events {
+		evt := Event{id, evtType}
+		rule := RuleStrategy(evt)
+		return !rule.Validate(e.store, evt)
+	}
+	return true
 }
 
 func main() {
@@ -230,14 +239,17 @@ func main() {
 		for i := 0; i < 5; i++ {
 			evtMgr.Log(evt)
 		}
-		fmt.Println(evtMgr.Allow(evt))
+		fmt.Println(evtMgr.Allow(evt.ID))
 	}
 
 	go func() {
-		time.Sleep(4 * time.Second)
-		for _, evt := range events {
-			for i := 0; i < 2; i++ {
-				evtMgr.Log(evt)
+		for {
+			time.Sleep(4 * time.Second)
+			n := rand.Intn(5)
+			for _, evt := range events {
+				for i := 0; i < n; i++ {
+					evtMgr.Log(evt)
+				}
 			}
 		}
 	}()
@@ -250,7 +262,7 @@ func main() {
 			select {
 			case <-t.C:
 				for _, evt := range events {
-					if evtMgr.Allow(evt) {
+					if evtMgr.Allow(evt.ID) {
 						fmt.Println(evt.ID, evt.Type, "is unblocked")
 					} else {
 						fmt.Println(evt.ID, evt.Type, "is blocked")
