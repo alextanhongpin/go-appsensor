@@ -14,13 +14,23 @@ type Rule interface {
 	Validate(store EventStore, evt Event) bool
 }
 
+var invalidPasswordRule *InvalidPasswordRule
+var defaultRule *DefaultRule
+
+func init() {
+	invalidPasswordRule = &InvalidPasswordRule{3}
+	defaultRule = &DefaultRule{1}
+}
+
 func RuleStrategy(evt Event) Rule {
 	switch evt.Type {
 	case InvalidPassword:
 		// Use prototype pattern.
-		return &InvalidPasswordRule{3}
+		rule := *invalidPasswordRule
+		return &rule
 	default:
-		return new(DefaultRule)
+		rule := *defaultRule
+		return &rule
 	}
 }
 
@@ -142,23 +152,23 @@ func (e *EventManagerImpl) loop() {
 		case <-e.quit:
 			return
 		case <-t.C:
-			e.cleanup()
+			if size := e.store.Size(); size > 0 {
+				e.cleanup()
+			}
 		}
 	}
 }
 
 func (e *EventManagerImpl) cleanup() {
-	fmt.Println("cleanup")
 	lockDuration := 1 * time.Second
 	size := e.store.Size()
 	keys := e.store.Keys(max(20/100*size, size))
 	for _, key := range keys {
 		meta := e.store.Get(key)
-		fmt.Println(meta)
 		// The lock duration is proportional to the frequency of the event.
 		if time.Since(meta.UpdatedAt) > (time.Duration(meta.Count) * lockDuration) {
 			meta.Count--
-			fmt.Println("decrement key", key)
+			fmt.Println("decrement key", key, meta.Count)
 			if meta.Count < 0 {
 				e.store.Delete(key)
 				fmt.Println("cleared key", key)
@@ -178,6 +188,7 @@ func (e *EventManagerImpl) Log(evt Event) {
 	meta.UpdatedAt = time.Now().UTC()
 	e.store.Put(evt, meta)
 	e.mu.Unlock()
+	fmt.Println("increment key", meta.Count)
 }
 
 func (e *EventManagerImpl) Allow(evt Event) bool {
@@ -186,14 +197,14 @@ func (e *EventManagerImpl) Allow(evt Event) bool {
 }
 
 func main() {
-	evtStore := NewEventStore()
-	evt := Event{"1", "invalid_password"}
-	meta := evtStore.Get(evt)
-	rule := RuleStrategy(evt)
-	err := rule.Validate(evtStore, evt)
-	fmt.Println("Hello, playground", evt, rule, meta, err)
+	events := []Event{
+		Event{"1", "invalid_password"},
+		Event{"2", "invalid_password"},
+		Event{"3", "something else"},
+	}
 
 	evtMgr := NewEventManager()
+
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go evtMgr.loop()
@@ -201,15 +212,21 @@ func main() {
 		time.Sleep(60 * time.Second)
 		wg.Done()
 	}()
-	evtMgr.Log(evt)
-	fmt.Println(evtMgr.Allow(evt))
-	evtMgr.Log(evt)
-	evtMgr.Log(evt)
-	evtMgr.Log(evt)
-	fmt.Println(evtMgr.Allow(evt))
+	for _, evt := range events {
+		for i := 0; i < 3; i++ {
+			evtMgr.Log(evt)
+		}
+		fmt.Println(evtMgr.Allow(evt))
+	}
+
+	go func() {
+		time.Sleep(5 * time.Second)
+		for _, evt := range events {
+			evtMgr.Log(evt)
+		}
+	}()
 
 	wg.Wait()
-	fmt.Println("exiting")
 }
 
 func max(a, b int) int {
