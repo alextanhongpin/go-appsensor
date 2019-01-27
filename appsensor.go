@@ -17,13 +17,14 @@ var Events = [...]string{InvalidPassword, Default}
 type Rule interface {
 	Allow(store EventStore, evt Event) bool
 	Update(store EventStore, evt Event)
+	Respond(store EventStore, evt Event)
 }
 
 var invalidPasswordRule *InvalidPasswordRule
 var defaultRule *DefaultRule
 
 func init() {
-	invalidPasswordRule = &InvalidPasswordRule{5, 1 * time.Second}
+	invalidPasswordRule = &InvalidPasswordRule{DefaultRule{5, 1 * time.Second}, 5, 15}
 	defaultRule = &DefaultRule{1, 1 * time.Second}
 }
 
@@ -68,18 +69,39 @@ func (d *DefaultRule) Update(store EventStore, evt Event) {
 	update(store, evt, d.duration)
 }
 
+func (d *DefaultRule) Respond(store EventStore, evt Event) {
+	meta := store.Get(evt)
+	meta.Count++
+	meta.UpdatedAt = time.Now().UTC()
+
+	store.Put(evt, meta)
+	fmt.Println("increment key", evt.ID, meta.Count)
+}
+
 type InvalidPasswordRule struct {
-	threshold int
-	duration  time.Duration
+	DefaultRule
+	warnThreshold     int
+	criticalThreshold int
 }
 
 func (i *InvalidPasswordRule) Allow(store EventStore, evt Event) bool {
-	e := store.Get(evt)
-	return e.Count < i.threshold
+	return i.DefaultRule.Allow(store, evt)
 }
 
 func (i *InvalidPasswordRule) Update(store EventStore, evt Event) {
 	update(store, evt, i.duration)
+}
+
+func (i *InvalidPasswordRule) Respond(store EventStore, evt Event) {
+	i.DefaultRule.Respond(store, evt)
+	meta := store.Get(evt)
+	if meta.Count >= i.criticalThreshold {
+		fmt.Println("locking account")
+		return
+	}
+	if meta.Count >= i.warnThreshold {
+		fmt.Println("sending slack notification")
+	}
 }
 
 type Event struct {
@@ -161,15 +183,13 @@ type EventManager interface {
 }
 
 type EventManagerImpl struct {
-	quit  chan interface{}
-	mu    *sync.RWMutex
+	quit chan interface{}
 	store EventStore
 }
 
 func NewEventManager() *EventManagerImpl {
 	return &EventManagerImpl{
-		quit:  make(chan interface{}),
-		mu:    new(sync.RWMutex),
+		quit: make(chan interface{}),
 		store: NewEventStore(),
 	}
 }
@@ -199,14 +219,8 @@ func (e *EventManagerImpl) cleanup() {
 }
 
 func (e *EventManagerImpl) Log(evt Event) {
-	meta := e.store.Get(evt)
-
-	e.mu.Lock()
-	meta.Count++
-	meta.UpdatedAt = time.Now().UTC()
-	e.store.Put(evt, meta)
-	e.mu.Unlock()
-	fmt.Println("increment key", evt.ID, meta.Count)
+	rule := RuleStrategy(evt)
+	rule.Respond(e.store, evt)
 }
 
 func (e *EventManagerImpl) Allow(id string) bool {
