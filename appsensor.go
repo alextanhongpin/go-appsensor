@@ -48,12 +48,14 @@ type DefaultRule struct {
 func (d *DefaultRule) Allow(store EventStore, evt Event) bool {
 	e := store.Get(evt)
 	return e.Count < d.threshold
+	// return e.IsFrozen
 }
 
 func update(store EventStore, evt Event, duration time.Duration) {
 	meta := store.Get(evt)
 	if time.Since(meta.UpdatedAt) > (time.Duration(meta.Count) * duration) {
 		meta.Count--
+		// meta.Frozen = meta.Count >= threshold
 		fmt.Println("decrement evt", evt, meta.Count)
 		if meta.Count < 0 {
 			store.Delete(evt)
@@ -100,7 +102,7 @@ func (i *InvalidPasswordRule) Respond(store EventStore, evt Event) {
 		return
 	}
 	if meta.Count >= i.warnThreshold {
-		fmt.Println("sending slack notification")
+		fmt.Println("sending slack notification|log user activity")
 	}
 }
 
@@ -180,16 +182,17 @@ func (e *EventStoreImpl) Keys(n int) []Event {
 type EventManager interface {
 	Log(Event)
 	Allow(id string) bool
+	Clear(id string)
 }
 
 type EventManagerImpl struct {
-	quit chan interface{}
+	quit  chan interface{}
 	store EventStore
 }
 
 func NewEventManager() *EventManagerImpl {
 	return &EventManagerImpl{
-		quit: make(chan interface{}),
+		quit:  make(chan interface{}),
 		store: NewEventStore(),
 	}
 }
@@ -234,6 +237,13 @@ func (e *EventManagerImpl) Allow(id string) bool {
 		}
 	}
 	return true
+}
+
+func (e *EventManagerImpl) Clear(id string) {
+	for _, evtType := range Events {
+		evt := Event{id, evtType}
+		e.store.Delete(evt)
+	}
 }
 
 func main() {
