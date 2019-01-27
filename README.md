@@ -59,3 +59,21 @@ There are some problem with logging everything though. Logging unnecessary infor
 Requirements are still often subject to changes though. And most of the time, we cannot derive the value at the beginning of the system. We can always choose to log all the raw requests and response (through a middleware if it's a http request), and log more specific requirements later in the system, hence maintaining both copy. 
 
 AppSensor design is probably an extension of the idea. We design more funnels (think it as a filter in a pipeline) which filters more specific business requirements that we are interested to know and can derive value from.
+
+
+## Get Client IP
+
+# Get ClientIP
+
+```bash
+$ alias dc=docker-compose
+$ dc up -d
+$ go run main.go
+$ curl localhost
+```
+
+Output:
+
+```
+ip is 127.0.0.1% 
+```
