@@ -77,3 +77,15 @@ Output:
 ```
 ip is 127.0.0.1% 
 ```
+
+## UseCases
+
+Title: Developer add new rule
+Main success scenarios: 
+1. Developer think of the rule constraints
+2. Developer writes a new struct for the rule
+3. Developer supply the max threshold and the block duration for the rule
+4. Developer supply the ips to be blacklisted
+5. Developer supply the other conditions for the blacklist
+
+
