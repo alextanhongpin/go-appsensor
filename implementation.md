@@ -11,6 +11,8 @@ import (
 
 type ThreatCode string
 
+type ThreatBitwise uint
+
 const (
 	BadPassword ThreatCode = "bad_password"
 )
@@ -62,7 +64,9 @@ type Event struct {
 
 type Visitor struct {
 	sync.RWMutex
-	ID     ID
+	ID ID
+	// something to check if the code already exists...codes []ThreatCode
+	// Bitwise operator?
 	events []Event
 }
 
@@ -121,8 +125,15 @@ func main() {
 	visitor.Add(NewBadPasswordEvent())
 	visitor.Add(NewBadPasswordEvent())
 	{
+		time.Sleep(1 * time.Second)
 		visitor, _ := visitorMgr.Get(id)
 		log.Println(threat.Allow(visitor))
 	}
 }
+
+// At every endpoint, get the user unique id (client ip)
+// Loop through each events
+// For each event with a threat, increment the counter
+// For each threat, compare the threshold counter versus the existing counter
+// If the threshold exceed, break the operation and return false
 ```
