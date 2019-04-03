@@ -137,3 +137,48 @@ func main() {
 // For each threat, compare the threshold counter versus the existing counter
 // If the threshold exceed, break the operation and return false
 ```
+
+## Storing time
+
+For each visitor, store the time of the events instead.
+```go
+package main
+
+import (
+	"fmt"
+	"sync"
+	"time"
+)
+
+type Visitor struct {
+	sync.RWMutex
+	events map[EventCode][]time.Time
+}
+
+func (v *Visitor) Count(code EventCode) int {
+	var count int
+	v.RLock()
+	events, ok := v.events[code]
+	if !ok {
+		count = 0
+	} else {
+		count = len(events)
+	}
+	v.RUnlock()
+	return count
+}
+
+func (v *Visitor) Add(code EventCode) {
+	v.Lock()
+	events, exist := v.events[code]
+	if !exist {
+		v.events[code] = make([]time.Time, 0)
+	}
+	v.events[code] = append(v.events[code], time.Now())
+	v.Unlock()
+}
+
+func main() {
+	fmt.Println("Hello, playground")
+}
+```
