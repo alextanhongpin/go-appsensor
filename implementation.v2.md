@@ -35,9 +35,8 @@ func (v *Visitor) ClearBefore(policies *PolicyManager) {
 	for code, evts := range v.events {
 		pol, _ := policies.Get(code)
 		cp := evts[:0]
-		base := time.Now().Add(-pol.Period)
 		for _, evt := range evts {
-			if evt.After(base) {
+			if time.Since(evt) < pol.Period {
 				log.Println("still valid timestamps")
 				cp = append(cp, evt)
 			}
