@@ -237,6 +237,28 @@ func (aps *AppSensor) Allow(id string) bool {
 	}
 	return time.Now().After(vst.penalizedUntil)
 }
+
+// NOTE: This API is oversimplified, there are probably more information that needs to be gathered here such as:
+// - detection points
+// - client_id (client referring to the application)
+// - event date/time
+// - url path
+// - http method
+// - source ip address
+// - source user agent
+// - query string
+// - bytes transferred
+// - response status code
+// LOCATION:
+// - host
+// - service/application name
+// - entry point
+// APP SENSOR DETECTION
+// - sensor id
+// - sensor location
+// - appsensor detection point
+// - description
+// - message
 func (aps *AppSensor) Penalize(id string, code EventCode) bool {
 	pol, _ := aps.policies.Get(code)
 	vst := aps.visitors.Add(id)
