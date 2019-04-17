@@ -1,126 +1,132 @@
-package appsensor
+package main
 
 import (
-	"sync"
+	"context"
+	"log"
 	"time"
 )
 
-var (
-	REQ1 = "REQ1"
-	REQ2 = "REQ2"
-	REQ3 = "REQ3"
+type EventCode uint
+
+const (
+	BadPassword EventCode = iota
+	BadRequest
 )
 
-type (
-	AppSensor interface {
-		Allow(id string) bool
-		Log(id, evt string)
-		Start()
-		Stop()
-	}
+type AppSensor struct {
+	policies *PolicyManager
+	visitors *VisitorManager
+}
 
-	Event struct {
-		Code      string
-		Count     int
-		CreatedAt time.Time
-		ID        string
-		Penalized bool
-		UpdatedAt time.Time
-	}
-)
+type Option struct {
+	Policies []Policy
+}
 
-func NewEvent(id, code string) *Event {
-	return &Event{
-		Code:      code,
-		Count:     1,
-		CreatedAt: time.Now().UTC(),
-		ID:        id,
-		UpdatedAt: time.Now().UTC(),
+func NewAppSensor(opt Option) *AppSensor {
+	p := NewPolicyManager()
+	p.Add(opt.Policies...)
+	return &AppSensor{
+		policies: p,
+		visitors: NewVisitorManager(),
 	}
 }
-
-type appSensorImpl struct {
-	sync.RWMutex
-	cache map[string]*Event
-
-	ch        chan *Event
-	duration  time.Duration
-	quit      chan struct{}
-	threshold int
+func (aps *AppSensor) Start() func(context.Context) {
+	return aps.visitors.Start(aps.policies)
 }
-
-func (a *appSensorImpl) Start() {
-	go a.loop()
-}
-
-func (a *appSensorImpl) loop() {
-	for {
-		select {
-		case <-a.quit:
-			return
-		case evt, ok := <-a.ch:
-			if !ok {
-				return
-			}
-			
-			if c, found := a.get(evt.ID); found {
-				c.Count++
-				if a.block(c) {
-					a.unblock(c)
-				}
-			} else {
-				// Create a new event.
-				a.set(evt.ID, evt)
-			}
-		}
+func (aps *AppSensor) Allow(id string) bool {
+	vst, ok := aps.visitors.Get(id)
+	// Does not exist, which means it has not been penalized...
+	if !ok {
+		return true
 	}
+	return time.Now().After(vst.penalizedUntil)
 }
 
-func (a *appSensorImpl) Stop() {
-	close(a.quit)
-}
-
-func (a *appSensorImpl) Log(id, evt string) {
-	select {
-	case <-a.quit:
-		return
-	case a.ch <- NewEvent(id, evt):
+// NOTE: This API is oversimplified, there are probably more information that needs to be gathered here such as:
+// - detection points
+// - client_id (client referring to the application)
+// - event date/time
+// - url path
+// - http method
+// - source ip address
+// - source user agent
+// - query string
+// - bytes transferred
+// - response status code
+// LOCATION:
+// - host
+// - service/application name
+// - entry point
+// APP SENSOR DETECTION
+// - sensor id
+// - sensor location
+// - appsensor detection point
+// - description
+// - message
+func (aps *AppSensor) Penalize(id string, code EventCode) bool {
+	pol, _ := aps.policies.Get(code)
+	vst := aps.visitors.Add(id)
+	vst.Add(code)
+	if penalized := vst.HasCount(code, pol.Period, pol.Threshold); penalized {
+		vst.Penalize(pol.PenalizedDuration)
+		return true
 	}
+	return false
 }
 
-func (a *appSensorImpl) Allow(id string) bool {
-	evt, found := a.get(id)
-	if found && a.block(evt) {
-		return a.unblock(evt)
+func main() {
+	opt := Option{
+		Policies: []Policy{
+			Policy{
+				Code:              BadPassword,
+				Period:            2 * time.Second, // Within 2 seconds,
+				Threshold:         3,               // If there is 3 event,
+				PenalizedDuration: 5 * time.Second, // The user is locked for 5 seconds
+			},
+			Policy{
+				Code:              BadRequest,
+				Period:            time.Second,     // Within 1 second,
+				Threshold:         1,               // If there is one event,
+				PenalizedDuration: 1 * time.Second, // The user is locked for 1 second
+			},
+		},
 	}
-	return !found
-}
+	aps := NewAppSensor(opt)
+	shutdown := aps.Start()
 
-func (a *appSensorImpl) get(id string) (*Event, bool){
-	a.RLock()
-	evt, found := a.cache[id]
-	a.RUnlock()
-	return evt, found
-}
+	allow := aps.Allow("0.0.0.0")
 
-func (a *appSensorImpl) set(id string, evt *Event) {
-	a.Lock()
-	a.cache[id] = evt
-	a.Unlock()
-} 
+	log.Println("can the ip pass?", allow)
+	log.Println(aps.Penalize("0.0.0.0", BadPassword))
+	log.Println(aps.Penalize("0.0.0.0", BadPassword))
+	log.Println(aps.Penalize("0.0.0.0", BadPassword))
 
-func (a *appSensorImpl) unblock(evt *Event) bool {
-	if evt.Penalized && time.Since(evt.UpdatedAt) > a.duration {
-		evt.Count = 0
-		evt.Penalized = false
-	}
-	return !evt.Penalized
-}
+	allow = aps.Allow("0.0.0.0")
+	log.Println("can the ip pass?", allow)
+	time.Sleep(3 * time.Second)
 
-func (a *appSensorImpl) block(evt *Event) bool {
-	if !evt.Penalized && evt.Count >= a.threshold {
-		evt.Penalized = true
-		evt.UpdatedAt = time.Now().UTC()
-	}
-	return evt.Penalized
+	allow = aps.Allow("0.0.0.0")
+	log.Println("can the ip pass?", allow)
+	time.Sleep(3 * time.Second)
+
+	allow = aps.Allow("0.0.0.0")
+	log.Println("can the ip pass?", allow)
+	log.Println(aps.Penalize("0.0.0.0", BadPassword))
+
+	log.Println(aps.Penalize("0.0.0.1", BadRequest))
+	allow = aps.Allow("0.0.0.1")
+	log.Println("can the ip 0.0.0.1 pass?", allow)
+	log.Println(aps.Penalize("0.0.0.1", BadRequest))
+	log.Println(aps.Penalize("0.0.0.1", BadRequest))
+	time.Sleep(2 * time.Second)
+	allow = aps.Allow("0.0.0.1")
+	log.Println("can the ip 0.0.0.1 pass?", allow)
+	time.Sleep(2 * time.Second)
+	allow = aps.Allow("0.0.0.1")
+	log.Println("can the ip 0.0.0.1 pass?", allow)
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+
+	shutdown(ctx)
+	log.Println("terminated gracefully")
 }
