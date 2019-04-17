@@ -6,6 +6,7 @@ import (
 	"time"
 )
 
+// PolicyManager holds the policies.
 type PolicyManager struct {
 	sync.RWMutex
 	policies []Policy

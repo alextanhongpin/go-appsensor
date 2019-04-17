@@ -1,3 +1,4 @@
+```go
 package main
 
 import (
@@ -28,6 +29,7 @@ func ClientIP(r *http.Request) string {
 
 	return ""
 }
+
 func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -36,3 +38,4 @@ func main() {
 
 	http.ListenAndServe(":8080", mux)
 }
+```
