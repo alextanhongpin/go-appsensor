@@ -16,7 +16,11 @@ type PolicyManager struct {
 func NewPolicyManager() *PolicyManager {
 	return &PolicyManager{
 		policies: make([]Policy, 0),
-		plain:    Policy{Threshold: 3, PenalizedDuration: 10 * time.Minute},
+		plain: Policy{
+			Threshold:         3,
+			Period:            24 * time.Hour,
+			PenalizedDuration: 10 * time.Minute,
+		},
 	}
 }
 

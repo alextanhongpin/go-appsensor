@@ -61,9 +61,19 @@ Requirements are still often subject to changes though. And most of the time, we
 AppSensor design is probably an extension of the idea. We design more funnels (think it as a filter in a pipeline) which filters more specific business requirements that we are interested to know and can derive value from.
 
 
+## Scoring System
+
+It would be interesting to add a scoring system for users too (perhaps a column that keeps track of the user's current score/health etc based on the level of activity). The could be similar to how the credit score system works, it doesn't have to be a value ranging from 0-1 (though the boundaries must be established).
+
+Knowing the user's scores allows us to take more decisive actions like the things to display etc. Think of it as a form or personalization, except that we are probably showing less data to users with bad scores.
+
+References:
+- http://credithealthcare.com/blog/how-credit-score-is-calculated/
+- https://peoplescu.info/external/pdf/edu/credit-scores.pdf
+
 ## Get Client IP
 
-# Get ClientIP
+### Get ClientIP
 
 ```bash
 $ alias dc=docker-compose
@@ -77,6 +87,13 @@ Output:
 ```
 ip is 127.0.0.1% 
 ```
+
+NOTE: Blocking by clientIP might not be a good solution, because many users can be under the same network. For anonymous users, it is best to generate a unique sessionID and use them to identify the user. 
+
+A combination of clientIP + sessionID might work, in the worst case where the sessionID is tampered with, we can fallback to the clientIP.
+
+
+NOTE: Just using the clientIP might not be a good indicator too. If we want to be specific (e.g. blocking user by the paths they visited), we can include other information such as url path and/or sessionID. This way, we can block users at a more granular level (locally, per path) rather than globally. Of course, if we want to block all users that originate from an IP address, we can just use that as the sole identifier.
 
 ## UseCases
 

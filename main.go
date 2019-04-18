@@ -13,26 +13,30 @@ const (
 	BadRequest
 )
 
+type Option struct {
+	Policies []Policy
+}
+
 type AppSensor struct {
 	policies *PolicyManager
 	visitors *VisitorManager
 }
 
-type Option struct {
-	Policies []Policy
-}
-
 func NewAppSensor(opt Option) *AppSensor {
 	p := NewPolicyManager()
 	p.Add(opt.Policies...)
+	v := NewVisitorManager()
+
 	return &AppSensor{
 		policies: p,
-		visitors: NewVisitorManager(),
+		visitors: v,
 	}
 }
+
 func (aps *AppSensor) Start() func(context.Context) {
 	return aps.visitors.Start(aps.policies)
 }
+
 func (aps *AppSensor) Allow(id string) bool {
 	vst, ok := aps.visitors.Get(id)
 	// Does not exist, which means it has not been penalized...
