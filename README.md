@@ -2,6 +2,10 @@
 
 Learning how to implement owasp-appsensor in go.
 
+## References
+
+https://owasp.org/www-pdf-archive/Owasp-appsensor-guide-v2.pdf
+
 
 ## Motivation
 
